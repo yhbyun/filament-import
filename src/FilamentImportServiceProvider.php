@@ -11,6 +11,7 @@ class FilamentImportServiceProvider extends PackageServiceProvider
     {
         $package->name('filament-import')
             ->hasConfigFile()
-            ->hasTranslations();
+            ->hasTranslations()
+            ->hasVIews();
     }
 }
