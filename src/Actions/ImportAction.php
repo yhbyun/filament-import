@@ -3,8 +3,12 @@
 namespace Konnco\FilamentImport\Actions;
 
 use App\Models\Company;
-use App\Services\ExcelImportService;
+use App\Services\Migration\DataNormalizer;
+use App\Utils\NetHelper;
+use App\Utils\SearchHelper;
+use Cheesegrits\FilamentPhoneNumbers\Support\PhoneHelper;
 use Closure;
+use Exception;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\CanCustomizeProcess;
 use Filament\Forms\Components\FileUpload;
@@ -12,13 +16,16 @@ use Filament\Forms\Components\Hidden;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\Alignment;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\HtmlString;
 use Konnco\FilamentImport\Concerns\HasActionMutation;
 use Konnco\FilamentImport\Concerns\HasActionUniqueField;
 use Konnco\FilamentImport\Concerns\HasTemporaryDisk;
 use Konnco\FilamentImport\Concerns\HasValidation;
 use Konnco\FilamentImport\ImportColumn;
+use Konnco\FilamentImport\Utils;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Maatwebsite\Excel\Concerns\Importable;
 use RuntimeException;
@@ -131,7 +138,7 @@ class ImportAction extends Action
                 ->visible(fn ($livewire) => $livewire->currentStep == 1 && empty($livewire->validationResults)),
 
             Action::make('validate')
-                ->label('데이터 검증')
+                ->label('데이터 정제 및 검증')
                 ->color('primary')
                 ->action(function ($livewire) {
                     $this->handleValidation($livewire);
@@ -149,7 +156,7 @@ class ImportAction extends Action
                 ->visible(function ($livewire) {
                     $validationResults = Session::get('validation_results', []);
                     if (! empty($validationResults)) {
-                        $summary = app(ExcelImportService::class)->getValidationSummary($validationResults);
+                        $summary = Utils::getValidationSummary($validationResults);
                     }
 
                     return $livewire->currentStep == 3 && ($summary['valid'] ?? 0);
@@ -199,7 +206,7 @@ class ImportAction extends Action
         foreach ($this->importColumns as $key => $column) {
             $index = $this->guessMatchingColumn($livewire, $column);
             if (is_null($index)) {
-                throw new RuntimeException("No matching column for $key");
+                throw new RuntimeException("{$key}에 해당하는 컬럼이 없습니다.");
             }
 
             $column->index($index);
@@ -228,11 +235,46 @@ class ImportAction extends Action
         if ($selected !== false) {
             return $selected;
         } elseif (! empty($column->getAlternativeColumnNames())) {
-            $alternativeNames = array_intersect($column->getAlternativeColumnNames(), $headers);
-            if (count($alternativeNames) > 0) {
-                return array_search(current($alternativeNames), $headers);
+            $alternativeNames = $column->getAlternativeColumnNames();
+
+            if (is_array($alternativeNames)) {
+                // TODO: 배열에서 'name:2' 형태 지원
+                $alternativeNames = array_intersect($alternativeNames, $headers);
+                if (count($alternativeNames) > 0) {
+                    return array_search(current($alternativeNames), $headers);
+                }
+            } else {
+                if (preg_match('/^([^\:]+):(\d+)$/', $alternativeNames, $matches)) {
+                    $name = $matches[1];
+                    $pos = $matches[2];
+
+                    return $this->findNthMatchIndex($headers, $name, $pos);
+                } else {
+                    $result = array_search($alternativeNames, $headers);
+
+                    return $result === false ? null : $result;
+                }
             }
         }
+    }
+
+    protected function findNthMatchIndex(array $arr, $value, int $n): ?int
+    {
+        if ($n <= 0) {
+            return null;
+        }
+
+        $foundCount = 0;
+        foreach ($arr as $index => $item) {
+            if ($item === $value) {
+                $foundCount++;
+                if ($foundCount === $n) {
+                    return $index;
+                }
+            }
+        }
+
+        return null;
     }
 
     protected function getInitialFormSchema(): array
@@ -246,7 +288,15 @@ class ImportAction extends Action
     protected function buildFileUpload(): FileUpload
     {
         return FileUpload::make('file')
-            ->label('')
+            ->label('📁 Excel 파일')
+            // ->placeholder(new HtmlString('
+            //     <div class="flex flex-col items-center py-8">
+            //         <svg class="w-12 h-12 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            //             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+            //         </svg>
+            //         <span class="text-sm text-gray-600">Excel 파일을 업로드하세요</span>
+            //     </div>
+            // '))
             ->required(! app()->environment('testing'))
             ->acceptedFileTypes(config('filament-import.accepted_mimes'))
             ->maxSize(10240) // 10MB
@@ -261,9 +311,9 @@ class ImportAction extends Action
                     $livewire->uploadedFile = $state->getRealPath();
                     $set('fileRealPath', $state->getRealPath());
 
-                    $this->parseFile($livewire);
-
-                    $livewire->currentStep = 2;
+                    if ($this->parseFile($livewire)) {
+                        $livewire->currentStep = 2;
+                    }
                 }
             });
     }
@@ -309,10 +359,22 @@ class ImportAction extends Action
         $this->parseFile($livewire);
     }
 
-    protected function parseFile($livewire): void
+    protected function parseFile($livewire): bool
     {
         logger('parseFile');
-        $this->guessMatchingColumns($livewire);
+        try {
+            $this->guessMatchingColumns($livewire);
+        } catch (Exception $e) {
+            Notification::make()
+                ->title('오류')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+
+            $livewire->currentStep = 1;
+
+            return false;
+        }
 
         $collection = $this->getCollection($livewire);
         $collection = $collection->skip((int) $this->shouldSkipHeader);
@@ -325,8 +387,13 @@ class ImportAction extends Action
                 ->body('Excel 파일에서 데이터를 찾을 수 없습니다.')
                 ->danger()
                 ->send();
+
             $livewire->currentStep = 1;
+
+            return false;
         }
+
+        return true;
     }
 
     protected function parseExcelFile($livewire): array
@@ -362,38 +429,79 @@ class ImportAction extends Action
 
     protected function validateData($livewire, array $data): array
     {
+        $validPrevCompany = false;
+
+        // TODO: 하드 코딩 수정
         foreach ($data as &$row) {
             $rules = [];
+            $attributes = [];
             $columnValues = [];
 
             foreach ($livewire->importColumns as $key => $column) {
                 $columnValue = $row['items'][$column['index']];
-                $columnValue = $this->importColumns[$key]->doMutateBeforeCreate($columnValue);
+                $columnValue = DataNormalizer::normalizeText($columnValue);
+                $columnValue = $this->importColumns[$key]->doMutateBeforeCreate($columnValue, $row['items']);
 
                 $columnValues[$key] = $columnValue;
 
                 $rules[$key] = $column['rules'];
+                $attributes[$key] = $column['label'];
+                if (str_starts_with($key, 'contact_')) {
+                    $attributes[$key] = '담당자 '.$attributes[$key];
+                }
             }
 
-            // importColumns에 정의된 순서대로 저장
-            // 형대는 [key1 => value1, key2 => value2]
+            // importColumns에 정의된 순서대로 저장된 상태
+            // 형태는 [key1 => value1, key2 => value2]
             $row['items'] = $columnValues;
 
-            $validator = Validator::make($columnValues, $rules);
+            $validator = Validator::make($columnValues, $rules, attributes: $attributes);
 
             if ($validator->fails()) {
                 $row['is_valid'] = false;
                 $row['errors'] = $validator->errors()->all();
-            } else {
-                // Check for duplicate company name in database
-                $existingCompany = Company::where('name', $row['items']['name'])->first();
-                if ($existingCompany) {
-                    $row['is_valid'] = false;
-                    $row['errors'] = ['이미 존재하는 회사명입니다.'];
-                } else {
+                $validPrevCompany = false;
+
+                continue;
+            }
+
+            $isDuplicate = $this->checkCompanyDuplicate($row['items']);
+            if ($isDuplicate !== false) {
+                $row['is_valid'] = false;
+                $validPrevCompany = true;
+
+                switch ($isDuplicate) {
+                    case 'name_kr':
+                        $row['errors'] = ['이미 존재하는 업체명입니다.'];
+                        break;
+
+                    case 'phone':
+                        $row['error'] = ['중복 전화번호입니다.'];
+                        break;
+
+                    case 'website':
+                        $row['error'] = ['중복 홈페이지입니다.'];
+                        break;
+                }
+
+                continue;
+            }
+
+            if (filled($row['items']['name_kr'])) {
+                $row['is_valid'] = true;
+                $row['errors'] = [];
+                $validPrevCompany = true;
+            } elseif (filled($row['items']['contact_name_kr'])) {
+                if ($validPrevCompany) {
                     $row['is_valid'] = true;
                     $row['errors'] = [];
+                } else {
+                    $row['is_valid'] = false;
+                    $row['errors'] = ['유효한 회사가 존재하지 않습니다.'];
                 }
+            } else {
+                $row['is_valid'] = false;
+                $row['errors'] = ['업체명과 담당자명이 모두 비어 있습니다.'];
             }
         }
 
@@ -420,12 +528,14 @@ class ImportAction extends Action
 
         $successCount = $importResults['success_count'];
         $errorCount = $importResults['error_count'];
+        $contacts = $importResults['contacts'];
 
         Notification::make()
             ->title('가져오기 완료')
-            ->body("성공적으로 {$successCount}개의 회사를 가져왔습니다.".
-                ($errorCount > 0 ? " {$errorCount}개의 레코드가 실패했습니다." : ''))
+            ->body("성공적으로 <span class='text-red-600 font-bold'>{$successCount}개의 회사와 {$contacts}개의 담당자</span>를 가져왔습니다. <span class='text-red-600 font-bold'>".
+                ($errorCount > 0 ? " {$errorCount}개의 레코드</span>가 실패했습니다." : ''))
             ->success()
+            ->persistent()
             ->send();
 
         $this->resetImportData($livewire);
@@ -444,23 +554,35 @@ class ImportAction extends Action
     protected function importValidData(array $validatedData): array
     {
         $successCount = 0;
+        $contacts = 0;
         $errorCount = 0;
         $errors = [];
+        $currentCompany = null;
 
+        // TODO: DB Transaction
         foreach ($validatedData as $row) {
             if ($row['is_valid']) {
                 try {
-                    // Check again for duplicates (in case of concurrent access)
-                    $existingCompany = Company::where('name', $row['items']['name'])->first();
-                    if (! $existingCompany) {
-                        Company::create([
-                            'name' => $row['items']['name'],
-                            'representative' => $row['items']['representative'],
-                        ]);
-                        $successCount++;
-                    } else {
-                        $errorCount++;
-                        $errors[] = "Row {$row['row']}: Company already exists";
+                    $row['items'] = $this->doMutateBeforeCreate($row['items']);
+
+                    if ($row['items']['name_kr']) {
+                        if (! $this->checkCompanyDuplicate($row['items'])) {
+                            $currentCompany = $this->createCompany($row['items']);
+                            $successCount++;
+                        } else {
+                            $currentCompany = null;
+                            $errorCount++;
+                            $errors[] = "Row {$row['row']}: Company already exists";
+                        }
+                    } elseif ($row['items']['contact_name_kr']) {
+                        if (! $currentCompany) {
+                            logger('Current company is empty, skip adding contact');
+
+                            continue;
+                        }
+
+                        $this->createContact($currentCompany, $row['items']);
+                        $contacts++;
                     }
                 } catch (\Exception $e) {
                     logger($e->getMessage());
@@ -475,8 +597,128 @@ class ImportAction extends Action
 
         return [
             'success_count' => $successCount,
+            'contacts' => $contacts,
             'error_count' => $errorCount,
             'errors' => $errors,
         ];
+    }
+
+    protected function createCompany(array $data): Company
+    {
+        try {
+            DB::beginTransaction();
+
+            $company = new Company;
+            $company->name_kr = $data['name_kr'];
+            $company->name_en = $data['name_en'];
+            $company->phone = $data['phone'];
+            $company->fax = $data['fax'];
+            $company->email = $data['email'];
+            $company->website = $data['website'];
+            $company->country_code = $data['country_code'];
+            $company->biz_no = $data['biz_no'];
+            $company->mgmt_grade = $data['mgmt_grade'];
+            $company->save();
+
+            if ($data['contact_name_kr']) {
+                $company->contacts()->create([
+                    'name_kr' => $data['contact_name_kr'],
+                    'position_kr' => $data['contact_position_kr'],
+                    'department_kr' => $data['contact_department_kr'],
+                    'phone' => $data['contact_phone'],
+                    'fax' => $data['contact_fax'],
+                    'mobile' => $data['contact_mobile'],
+                    'is_active' => 1,
+                ]);
+            }
+
+            if ($data['street_line1']) {
+                $company->addresses()->create([
+                    'address_format' => 'full',
+                    'locale' => $data['country_code'] === 'KR' ? 'ko' : 'en',
+                    'postal_code' => $data['postal_code'],
+                    'street_line1' => $data['street_line1'],
+                ]);
+            }
+
+            if ($data['ceo_name'] || $data['brand_name'] || $data['main_items']) {
+                $company->details()->create([
+                    'locale' => $data['country_code'] === 'KR' ? 'ko' : 'en',
+                    'ceo_name' => $data['ceo_name'],
+                    'brand_name' => $data['brand_name'],
+                    'main_items' => $data['main_items'],
+                ]);
+            }
+
+            if ($data['biz_type'] || $data['biz_items']) {
+                $company->businessDetail()->create([
+                    'biz_type' => $data['biz_type'],
+                    'biz_items' => $data['biz_items'],
+                ]);
+            }
+
+            if ($data['industry_code']) {
+                $company->industries()->attach($data['industry_code']);
+            }
+
+            DB::commit();
+
+            return $company;
+        } catch (Exception $e) {
+            logger()->error($e->getMessage());
+            DB::rollback();
+            throw $e;
+        }
+    }
+
+    protected function createContact(Company $company, array $data): void
+    {
+        if ($data['contact_name_kr']) {
+            $company->contacts()->create([
+                'name_kr' => $data['contact_name_kr'],
+                'position_kr' => $data['contact_position_kr'],
+                'department_kr' => $data['contact_department_kr'],
+                'phone' => $data['contact_phone'],
+                'fax' => $data['contact_fax'],
+                'mobile' => $data['contact_mobile'],
+                'is_active' => 1,
+            ]);
+        }
+    }
+
+    protected function checkCompanyDuplicate(array $data): bool|string
+    {
+        if ($data['name_kr']) {
+            $normalizedName = SearchHelper::normalizeCompanySearchTerm($data['name_kr']);
+            if (
+                Company::where('name_kr', $data['name_kr'])
+                    ->orWhere('name_kr_normalized', $normalizedName)->exists()
+            ) {
+                return 'name_kr';
+            }
+        }
+
+        if ($url = $data['website']) {
+            $url = NetHelper::extractDomain($url);
+
+            if (Company::where('website', 'like', '%url%')->exists()) {
+                return 'website;';
+            }
+        }
+
+        if ($phone = $data['phone']) {
+            $phone = PhoneHelper::formatPhoneNumber(
+                number: $phone,
+                strict: false,
+                format: config('filament-phone-numbers.defaults.database_format'),
+                region: $data['country_code']
+            );
+
+            if (Company::where('phone', $phone)->exists()) {
+                return 'phone;';
+            }
+        }
+
+        return false;
     }
 }

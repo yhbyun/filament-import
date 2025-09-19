@@ -15,7 +15,7 @@ trait HasFieldMutation
         return $this;
     }
 
-    public function doMutateBeforeCreate(mixed $state)
+    public function doMutateBeforeCreate(mixed $state, $row)
     {
         $closure = $this->mutateBeforeCreate;
 
@@ -23,6 +23,6 @@ trait HasFieldMutation
             return $state;
         }
 
-        return $closure($state);
+        return $closure($state, $row);
     }
 }

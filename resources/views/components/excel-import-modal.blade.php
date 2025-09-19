@@ -67,23 +67,23 @@
                     </p>
                 </div>
 
-                <div class="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+                <div class="max-h-96 overflow-auto border border-gray-200 rounded-lg">
                     <table class="w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
+                        <thead class="bg-gray-50 sticky top-0 z-10">
                             <tr>
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">행</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 whitespace-nowrap">행</th>
 
                                 @foreach ($livewire->importColumns as $key => $column)
-                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $column['label'] }}</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 whitespace-nowrap">{{ $column['label'] }}</th>
                                 @endforeach
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             @foreach ($livewire->validationResults as $row)
                                 <tr>
-                                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{{ $row['row'] }}</td>
+                                    <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-900">{{ $row['row'] }}</td>
                                     @foreach ($livewire->importColumns as $key => $column)
-                                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{{ $row['items'][$column['index']] }}</td>
+                                    <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-900">{{ $row['items'][$column['index']] }}</td>
                                     @endforeach
                                 </tr>
                             @endforeach
@@ -104,7 +104,7 @@
             <h3 class="text-lg font-medium text-gray-900 mb-4">검증 결과</h3>
 
             @php
-                $summary = app(\App\Services\ExcelImportService::class)->getValidationSummary($livewire->validationResults);
+                $summary = \Konnco\FilamentImport\Utils::getValidationSummary($livewire->validationResults);
             @endphp
 
             <!-- Summary -->
@@ -124,16 +124,16 @@
             </div>
 
             <!-- Detailed Results -->
-            <div class="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+            <div class="max-h-96 overflow-auto border border-gray-200 rounded-lg">
                 <table class="w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-gray-50 sticky top-0 z-10">
                         <tr>
-                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">상태</th>
-                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">행</th>
-                            @foreach ($livewire->headers as $header)
-                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ $header }}</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 whitespace-nowrap">상태</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 whitespace-nowrap">행</th>
+                            @foreach ($livewire->importColumns as $key => $column)
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 whitespace-nowrap">{{ $column['label'] }}</th>
                             @endforeach
-                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">오류</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 whitespace-nowrap">오류</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200">
@@ -150,14 +150,32 @@
                                         </span>
                                     @endif
                                 </td>
-                                <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{{ $row['row'] }}</td>
-                                @foreach ($row['items'] as $value)
-                                    <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{{ $value }}</td>
+                                <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-900">{{ $row['row'] }}</td>
+                                @foreach ($row['items'] as $key => $value)
+                                    <td class="px-4 py-2 whitespace-nowrap text-xs text-gray-900">
+                                        @if ($key === 'mgmt_grade')
+                                            {{ $value ? \App\Enums\MgmtGrade::fromName($value)?->getLabel() : '' }}
+                                        @else
+                                            {{ $value }}
+                                        @endif
+                                    </td>
                                 @endforeach
-                                <td class="px-4 py-2 text-sm text-red-600">
-                                    @if (!empty($row['errors']))
-                                        {{ implode(', ', $row['errors']) }}
-                                    @endif
+                                <td class="px-4 py-2 text-xs text-red-600">
+                                    @php $errorText = implode(', ', $row['errors']); @endphp
+
+                                    <div
+                                        class="group relative cursor-help"
+                                        title="{{ $errorText }}"
+                                    >
+                                        <div class="truncate max-w-xs text-red-600">
+                                            {{ Str::limit($errorText, $maxLength ?? 40) }}
+                                        </div>
+
+                                        {{-- 호버시 보이는 풀 텍스트 --}}
+                                        <div class="invisible group-hover:visible absolute z-50 p-3 mt-1 text-sm bg-red-50 border border-red-200 text-red-800 rounded-lg shadow-lg max-w-sm whitespace-normal">
+                                            {{ $errorText }}
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
                         @endforeach

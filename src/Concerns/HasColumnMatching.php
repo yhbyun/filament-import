@@ -4,16 +4,16 @@ namespace Konnco\FilamentImport\Concerns;
 
 trait HasColumnMatching
 {
-    protected ?array $alternativeColumnNames = [];
+    protected string|array $alternativeColumnNames = '';
 
-    public function alternativeColumnNames(array $alternativeColumnNames): static
+    public function alternativeColumnNames(string|array $alternativeColumnNames): static
     {
         $this->alternativeColumnNames = $alternativeColumnNames;
 
         return $this;
     }
 
-    public function getAlternativeColumnNames(): array
+    public function getAlternativeColumnNames(): string|array
     {
         return $this->alternativeColumnNames;
     }
