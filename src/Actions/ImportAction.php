@@ -476,11 +476,11 @@ class ImportAction extends Action
                         break;
 
                     case 'phone':
-                        $row['error'] = ['중복 전화번호입니다.'];
+                        $row['errors'] = ['중복 전화번호입니다.'];
                         break;
 
                     case 'website':
-                        $row['error'] = ['중복 홈페이지입니다.'];
+                        $row['errors'] = ['중복 홈페이지입니다.'];
                         break;
                 }
 
