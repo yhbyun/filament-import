@@ -689,15 +689,15 @@ class ImportAction extends Action
 
     protected function checkCompanyDuplicate(array $data): bool|string
     {
-        if ($data['name_kr']) {
-            $normalizedName = SearchHelper::normalizeCompanySearchTerm($data['name_kr']);
-            if (
-                Company::where('name_kr', $data['name_kr'])
-                    ->orWhere('name_kr_normalized', $normalizedName)->exists()
-            ) {
-                return 'name_kr';
-            }
-        }
+        // if ($data['name_kr']) {
+        //     $normalizedName = SearchHelper::normalizeCompanySearchTerm($data['name_kr']);
+        //     if (
+        //         Company::where('name_kr', $data['name_kr'])
+        //             ->orWhere('name_kr_normalized', $normalizedName)->exists()
+        //     ) {
+        //         return 'name_kr';
+        //     }
+        // }
 
         if ($url = $data['website']) {
             $url = NetHelper::extractDomain($url);
