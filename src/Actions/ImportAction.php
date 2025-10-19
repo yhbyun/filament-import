@@ -469,7 +469,7 @@ class ImportAction extends Action
             $isDuplicate = $this->checkCompanyDuplicate($row['items']);
             if ($isDuplicate !== false) {
                 $row['is_valid'] = false;
-                $validPrevCompany = true;
+                $validPrevCompany = false;
 
                 switch ($isDuplicate) {
                     case 'name_kr':
