@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use Konnco\FilamentImport\Concerns\HasActionMutation;
 use Konnco\FilamentImport\Concerns\HasActionUniqueField;
 use Konnco\FilamentImport\Concerns\HasTemporaryDisk;
@@ -612,12 +613,12 @@ class ImportAction extends Action
             $company->name_kr = $data['name_kr'];
             $company->name_en = $data['name_en'];
             $company->phone = $data['phone'];
-            $company->fax = $data['fax'];
             $company->email = $data['email'];
             $company->website = $data['website'];
             $company->country_code = $data['country_code'];
             $company->biz_no = $data['biz_no'];
             $company->mgmt_grade = $data['mgmt_grade'];
+            $company->memo = Str::limit($data['memo']);
             $company->save();
 
             if ($data['contact_name_kr']) {
@@ -626,8 +627,8 @@ class ImportAction extends Action
                     'position_kr' => $data['contact_position_kr'],
                     'department_kr' => $data['contact_department_kr'],
                     'phone' => $data['contact_phone'],
-                    'fax' => $data['contact_fax'],
                     'mobile' => $data['contact_mobile'],
+                    'email' => $data['contact_email'],
                     'is_active' => 1,
                 ]);
             }
@@ -679,8 +680,8 @@ class ImportAction extends Action
                 'position_kr' => $data['contact_position_kr'],
                 'department_kr' => $data['contact_department_kr'],
                 'phone' => $data['contact_phone'],
-                'fax' => $data['contact_fax'],
                 'mobile' => $data['contact_mobile'],
+                'email' => $data['contact_email'],
                 'is_active' => 1,
             ]);
         }
