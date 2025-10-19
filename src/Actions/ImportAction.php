@@ -590,10 +590,11 @@ class ImportAction extends Action
                     $errorCount++;
                     $errors[] = "Row {$row['row']}: ".$e->getMessage();
                 }
-            } else {
-                $errorCount++;
-                $errors[] = "Row {$row['row']}: ".implode(', ', $row['errors']);
             }
+            // } else {
+            //     $errorCount++;
+            //     $errors[] = "Row {$row['row']}: ".implode(', ', $row['errors']);
+            // }
         }
 
         return [
