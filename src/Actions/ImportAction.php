@@ -701,8 +701,8 @@ class ImportAction extends Action
         if ($url = $data['website']) {
             $url = NetHelper::extractDomain($url);
 
-            if (Company::where('website', 'like', '%url%')->exists()) {
-                return 'website;';
+            if (Company::where('website', 'like', "%$url%")->exists()) {
+                return 'website';
             }
         }
 
@@ -715,7 +715,7 @@ class ImportAction extends Action
             );
 
             if (Company::where('phone', $phone)->exists()) {
-                return 'phone;';
+                return 'phone';
             }
         }
 
