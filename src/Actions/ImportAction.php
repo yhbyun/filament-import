@@ -463,6 +463,8 @@ class ImportAction extends Action
                 $row['errors'] = $validator->errors()->all();
                 $validPrevCompany = false;
 
+                logger()->info($row['items']['name_kr'].' validation failed: '.json_encode($row['errors'], JSON_UNESCAPED_UNICODE));
+
                 continue;
             }
 
@@ -596,6 +598,8 @@ class ImportAction extends Action
             //     $errors[] = "Row {$row['row']}: ".implode(', ', $row['errors']);
             // }
         }
+
+        logger()->info('importValidData error: '.json_encode($errors, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
         return [
             'success_count' => $successCount,
