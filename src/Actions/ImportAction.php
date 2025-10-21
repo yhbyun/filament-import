@@ -144,7 +144,13 @@ class ImportAction extends Action
                 ->action(function ($livewire) {
                     $this->handleValidation($livewire);
                 })
-                ->visible(fn ($livewire) => $livewire->currentStep == 2),
+                ->visible(fn ($livewire) => $livewire->currentStep == 2)
+                ->extraAttributes([
+                    'wire:loading.attr' => 'disabled',
+                    'wire:loading.class' => 'opacity-50 cursor-wait',
+                ])
+                ->before(fn ($livewire) => $livewire->dispatch('action-loading'))
+                ->after(fn ($livewire) => $livewire->dispatch('action-loaded')),
 
             Action::make('import')
                 ->label('일괄 등록')
@@ -161,7 +167,13 @@ class ImportAction extends Action
                     }
 
                     return $livewire->currentStep == 3 && ($summary['valid'] ?? 0);
-                }),
+                })
+                ->extraAttributes([
+                    'wire:loading.attr' => 'disabled',
+                    'wire:loading.class' => 'opacity-50 cursor-wait',
+                ])
+                ->before(fn ($livewire) => $livewire->dispatch('action-loading'))
+                ->after(fn ($livewire) => $livewire->dispatch('action-loaded')),
 
             Action::make('back')
                 ->label('이전')
