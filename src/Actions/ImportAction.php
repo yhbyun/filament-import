@@ -241,7 +241,7 @@ class ImportAction extends Action
     {
         $collection = $this->getCollection($livewire);
 
-        $headers = $collection->first()->map('trim')->toArray();
+        $headers = $collection->first()->map(fn ($value) => trim($value ?? ''))->toArray();
         $this->headers($livewire, $headers);
 
         $selected = array_search($column->getName(), $headers);
