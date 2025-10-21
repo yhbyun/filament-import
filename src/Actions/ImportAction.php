@@ -635,6 +635,7 @@ class ImportAction extends Action
                     'locale' => $data['country_code'] === 'KR' ? 'ko' : 'en',
                     'postal_code' => $data['postal_code'],
                     'street_line1' => $data['street_line1'],
+                    'country_code' => $data['country_code'],
                 ]);
             }
 
