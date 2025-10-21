@@ -6,7 +6,6 @@ use App\Models\Company;
 use App\Services\Migration\DataNormalizer;
 use App\Utils\NetHelper;
 use App\Utils\SearchHelper;
-use Cheesegrits\FilamentPhoneNumbers\Support\PhoneHelper;
 use Closure;
 use Exception;
 use Filament\Actions\Action;
@@ -206,7 +205,6 @@ class ImportAction extends Action
 
     public function importColumns(array $columns): static
     {
-        logger('importColumns');
         $this->importColumns = collect($columns)->mapWithKeys(fn ($item) => [$item->getName() => $item])->toArray();
 
         return $this;
@@ -214,8 +212,6 @@ class ImportAction extends Action
 
     public function guessMatchingColumns($livewire): void
     {
-        logger('guessMatchingColumns');
-
         foreach ($this->importColumns as $key => $column) {
             $index = $this->guessMatchingColumn($livewire, $column);
             if (is_null($index)) {
@@ -318,8 +314,6 @@ class ImportAction extends Action
             ->directory($this->getTemporaryDirectory())
             ->visible(fn ($livewire) => $livewire->currentStep == 1)
             ->afterStateUpdated(function (callable $set, TemporaryUploadedFile $state, $livewire) {
-                logger('afterStateUpdated fileupload');
-
                 if ($state) {
                     $livewire->uploadedFile = $state->getRealPath();
                     $set('fileRealPath', $state->getRealPath());
@@ -341,8 +335,6 @@ class ImportAction extends Action
 
     public function handleNext($livewire, array $data)
     {
-        logger('handleNext');
-
         // Check if file exists in the data
         if (! isset($data['file']) || empty($data['file'])) {
             Notification::make()
@@ -374,7 +366,6 @@ class ImportAction extends Action
 
     protected function parseFile($livewire): bool
     {
-        logger('parseFile');
         try {
             $this->guessMatchingColumns($livewire);
         } catch (Exception $e) {
@@ -430,8 +421,6 @@ class ImportAction extends Action
 
     protected function handleValidation($livewire): void
     {
-        logger('handleValidateion');
-
         $this->guessMatchingColumns($livewire);
 
         $livewire->validationResults = $this->validateData($livewire, $livewire->validationResults);
@@ -475,7 +464,7 @@ class ImportAction extends Action
                 $row['errors'] = $validator->errors()->all();
                 $validPrevCompany = false;
 
-                logger()->info($row['items']['name_kr'].' validation failed: '.json_encode($row['errors'], JSON_UNESCAPED_UNICODE));
+                logger()->info(($row['items']['name_kr'] ?? $row['items']['name_en']).' validation failed: '.json_encode($row['errors'], JSON_UNESCAPED_UNICODE));
 
                 continue;
             }
@@ -502,17 +491,17 @@ class ImportAction extends Action
                 continue;
             }
 
-            if (filled($row['items']['name_kr'])) {
+            if (filled($row['items']['name_kr']) || filled($row['items']['name_en'])) {
                 $row['is_valid'] = true;
                 $row['errors'] = [];
                 $validPrevCompany = true;
-            } elseif (filled($row['items']['contact_name_kr'])) {
+            } elseif (filled($row['items']['contact_name'])) {
                 if ($validPrevCompany) {
                     $row['is_valid'] = true;
                     $row['errors'] = [];
                 } else {
                     $row['is_valid'] = false;
-                    $row['errors'] = ['유효한 회사가 존재하지 않습니다.'];
+                    $row['errors'] = ['상단 회사가 유효하지 않습니다.'];
                 }
             } else {
                 $row['is_valid'] = false;
@@ -580,7 +569,7 @@ class ImportAction extends Action
                 try {
                     $row['items'] = $this->doMutateBeforeCreate($row['items']);
 
-                    if ($row['items']['name_kr']) {
+                    if ($row['items']['name_kr'] || $row['items']['name_en']) {
                         if (! $this->checkCompanyDuplicate($row['items'])) {
                             $currentCompany = $this->createCompany($row['items']);
                             $successCount++;
@@ -589,7 +578,7 @@ class ImportAction extends Action
                             $errorCount++;
                             $errors[] = "Row {$row['row']}: Company already exists";
                         }
-                    } elseif ($row['items']['contact_name_kr']) {
+                    } elseif ($row['items']['contact_name']) {
                         if (! $currentCompany) {
                             logger('Current company is empty, skip adding contact');
 
@@ -638,17 +627,7 @@ class ImportAction extends Action
             $company->memo = Str::limit($data['memo']);
             $company->save();
 
-            if ($data['contact_name_kr']) {
-                $company->contacts()->create([
-                    'name_kr' => $data['contact_name_kr'],
-                    'position_kr' => $data['contact_position_kr'],
-                    'department_kr' => $data['contact_department_kr'],
-                    'phone' => $data['contact_phone'],
-                    'mobile' => $data['contact_mobile'],
-                    'email' => $data['contact_email'],
-                    'is_active' => 1,
-                ]);
-            }
+            $this->createContact($company, $data);
 
             if ($data['street_line1']) {
                 $company->addresses()->create([
@@ -691,11 +670,11 @@ class ImportAction extends Action
 
     protected function createContact(Company $company, array $data): void
     {
-        if ($data['contact_name_kr']) {
+        if ($data['contact_name']) {
             $company->contacts()->create([
-                'name_kr' => $data['contact_name_kr'],
-                'position_kr' => $data['contact_position_kr'],
-                'department_kr' => $data['contact_department_kr'],
+                $company->country_code === 'KR' ? 'name_kr' : 'name_en' => $data['contact_name'],
+                $company->country_code === 'KR' ? 'position_kr' : 'position_en' => $data['contact_position'],
+                $company->country_code === 'KR' ? 'department_kr' : 'department_en' => $data['contact_department'],
                 'phone' => $data['contact_phone'],
                 'mobile' => $data['contact_mobile'],
                 'email' => $data['contact_email'],
@@ -725,13 +704,7 @@ class ImportAction extends Action
         }
 
         if ($phone = $data['phone']) {
-            $phone = PhoneHelper::formatPhoneNumber(
-                number: $phone,
-                strict: false,
-                format: config('filament-phone-numbers.defaults.database_format'),
-                region: $data['country_code']
-            );
-
+            $phone = DataNormalizer::phoneDatabaseFormat($phone, $data['country_code']);
             if (Company::where('phone', $phone)->exists()) {
                 return 'phone';
             }
