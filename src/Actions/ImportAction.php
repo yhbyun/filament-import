@@ -228,6 +228,7 @@ class ImportAction extends Action
                     'label' => $item->getLabel(),
                     'index' => $item->getIndex(),
                     'rules' => $item->getValidationRules(),
+                    'messages' => $item->getCustomValidationMessages(),
                 ];
             })->toArray();
         }
@@ -436,6 +437,7 @@ class ImportAction extends Action
         // TODO: 하드 코딩 수정
         foreach ($data as &$row) {
             $rules = [];
+            $validationMessages = [];
             $attributes = [];
             $columnValues = [];
 
@@ -447,6 +449,9 @@ class ImportAction extends Action
                 $columnValues[$key] = $columnValue;
 
                 $rules[$key] = $column['rules'];
+                if (count($column['messages'])) {
+                    $validationMessages[$key] = $column['messages'];
+                }
                 $attributes[$key] = $column['label'];
                 if (str_starts_with($key, 'contact_')) {
                     $attributes[$key] = '담당자 '.$attributes[$key];
@@ -457,7 +462,7 @@ class ImportAction extends Action
             // 형태는 [key1 => value1, key2 => value2]
             $row['items'] = $columnValues;
 
-            $validator = Validator::make($columnValues, $rules, attributes: $attributes);
+            $validator = Validator::make($columnValues, $rules, messages: $validationMessages, attributes: $attributes);
 
             if ($validator->fails()) {
                 $row['is_valid'] = false;
