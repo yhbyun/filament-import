@@ -4,6 +4,7 @@ namespace Konnco\FilamentImport\Actions;
 
 use App\Models\Company;
 use App\Services\Migration\DataNormalizer;
+use App\Utils\LexicalHelper;
 use App\Utils\NetHelper;
 use App\Utils\SearchHelper;
 use Closure;
@@ -621,8 +622,18 @@ class ImportAction extends Action
             DB::beginTransaction();
 
             $company = new Company;
-            $company->name_kr = $data['name_kr'];
-            $company->name_en = $data['name_en'];
+
+            if ($data['name_kr'] === $data['name_en']) {
+                if (LexicalHelper::containsKorean($data['name_kr'])) {
+                    $company->name_kr = $data['name_kr'];
+                } else {
+                    $company->name_en = $data['name_en'];
+                }
+            } else {
+                $company->name_kr = $data['name_kr'];
+                $company->name_en = $data['name_en'];
+            }
+
             $company->phone = $data['phone'];
             $company->email = $data['email'];
             $company->website = $data['website'];
@@ -635,9 +646,10 @@ class ImportAction extends Action
             $this->createContact($company, $data);
 
             if ($data['street_line1']) {
+                $locale = LexicalHelper::containsKorean($data['street_line1']) ? 'ko' : 'en';
                 $company->addresses()->create([
                     'address_format' => 'full',
-                    'locale' => $data['country_code'] === 'KR' ? 'ko' : 'en',
+                    'locale' => $locale,
                     'postal_code' => $data['postal_code'],
                     'street_line1' => $data['street_line1'],
                     'country_code' => $data['country_code'],
@@ -645,8 +657,16 @@ class ImportAction extends Action
             }
 
             if ($data['ceo_name'] || $data['brand_name'] || $data['main_items']) {
+                if (LexicalHelper::containsKorean($data['ceo_name'])
+                    || LexicalHelper::containsKorean($data['brand_name'])
+                    || LexicalHelper::containsKorean($data['main_items'])) {
+                    $locale = 'ko';
+                } else {
+                    $locale = 'en';
+                }
+
                 $company->details()->create([
-                    'locale' => $data['country_code'] === 'KR' ? 'ko' : 'en',
+                    'locale' => $locale,
                     'ceo_name' => $data['ceo_name'],
                     'brand_name' => $data['brand_name'],
                     'main_items' => $data['main_items'],
@@ -677,10 +697,18 @@ class ImportAction extends Action
     protected function createContact(Company $company, array $data): void
     {
         if ($data['contact_name']) {
+            if (LexicalHelper::containsKorean($data['contact_name'])
+                    || LexicalHelper::containsKorean($data['contact_position'])
+                    || LexicalHelper::containsKorean($data['contact_department'])) {
+                $locale = 'ko';
+            } else {
+                $locale = 'en';
+            }
+
             $company->contacts()->create([
-                $company->country_code === 'KR' ? 'name_kr' : 'name_en' => $data['contact_name'],
-                $company->country_code === 'KR' ? 'position_kr' : 'position_en' => $data['contact_position'],
-                $company->country_code === 'KR' ? 'department_kr' : 'department_en' => $data['contact_department'],
+                $locale === 'ko' ? 'name_kr' : 'name_en' => $data['contact_name'],
+                $locale === 'ko' ? 'position_kr' : 'position_en' => $data['contact_position'],
+                $locale === 'ko' ? 'department_kr' : 'department_en' => $data['contact_department'],
                 'phone' => $data['contact_phone'],
                 'mobile' => $data['contact_mobile'],
                 'email' => $data['contact_email'],
