@@ -684,6 +684,7 @@ class ImportAction extends Action
                 'phone' => $data['contact_phone'],
                 'mobile' => $data['contact_mobile'],
                 'email' => $data['contact_email'],
+                'country_code' => $company->country_code,
                 'is_active' => 1,
             ]);
         }
