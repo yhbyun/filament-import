@@ -501,13 +501,27 @@ class ImportAction extends Action
                 $row['is_valid'] = true;
                 $row['errors'] = [];
                 $validPrevCompany = true;
-            } elseif (filled($row['items']['contact_name'])) {
-                if ($validPrevCompany) {
-                    $row['is_valid'] = true;
-                    $row['errors'] = [];
-                } else {
+
+                continue;
+            }
+
+            if (filled($row['items']['contact_name'])) {
+                $hasNonContactValue = collect($row['items'])
+                    ->reject(fn ($value, $key) => str_starts_with($key, 'contact_'))
+                    ->filter()
+                    ->isNotEmpty();
+
+                if ($hasNonContactValue) {
                     $row['is_valid'] = false;
-                    $row['errors'] = ['상단 회사가 유효하지 않습니다.'];
+                    $row['errors'] = ['업체명이 비었는데, 업체정보가 존재합니다.'];
+                } else {
+                    if ($validPrevCompany) {
+                        $row['is_valid'] = true;
+                        $row['errors'] = [];
+                    } else {
+                        $row['is_valid'] = false;
+                        $row['errors'] = ['상단 회사가 유효하지 않습니다.'];
+                    }
                 }
             } else {
                 $row['is_valid'] = false;
